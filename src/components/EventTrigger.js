@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const EventTrigger = ({
   currentUser,
@@ -14,6 +14,7 @@ const EventTrigger = ({
   const [isLoading, setIsLoading] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [loadingPosts, setLoadingPosts] = useState(false);
+  const [currentTargetUserPosts, setCurrentTargetUserPosts] = useState([]);
 
   const eventTypes = [
     { value: 'like', label: '👍 Like', description: 'Like someone\'s post', icon: '👍' },
@@ -30,18 +31,44 @@ const EventTrigger = ({
     "Fantastic integration of modern and classic elements."
   ];
 
+  // Clear target user posts when target user changes or component mounts
+  useEffect(() => {
+    if (selectedTargetUser) {
+      // Filter posts to only show posts from the selected target user
+      const filteredPosts = targetUserPosts.filter(post => 
+        post.userId === selectedTargetUser
+      );
+      setCurrentTargetUserPosts(filteredPosts);
+      console.log(`🔍 Filtered ${filteredPosts.length} posts for target user:`, selectedTargetUser);
+    } else {
+      setCurrentTargetUserPosts([]);
+    }
+  }, [selectedTargetUser, targetUserPosts]);
+
+  // Clear posts when current user changes
+  useEffect(() => {
+    setSelectedTargetUser('');
+    setSelectedEntityId('');
+    setCurrentTargetUserPosts([]);
+    setCommentText('');
+    setFeedback('');
+  }, [currentUser]);
+
   const handleTargetUserChange = async (e) => {
     const userId = e.target.value;
     setSelectedTargetUser(userId);
     setSelectedEntityId('');
     setFeedback('');
+    setCurrentTargetUserPosts([]); // Clear posts immediately
     
     if (userId && (selectedEventType === 'like' || selectedEventType === 'comment')) {
       setLoadingPosts(true);
       try {
+        // Call the parent function to load posts for this specific user
         await onTargetUserChange(userId);
       } catch (error) {
         console.error('Error loading target user posts:', error);
+        setFeedback('❌ Error loading posts for selected user');
       } finally {
         setLoadingPosts(false);
       }
@@ -53,6 +80,11 @@ const EventTrigger = ({
     setSelectedEntityId('');
     setCommentText('');
     setFeedback('');
+    
+    // If switching to like or comment, reload posts for current target user
+    if ((e.target.value === 'like' || e.target.value === 'comment') && selectedTargetUser) {
+      handleTargetUserChange({ target: { value: selectedTargetUser } });
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -71,7 +103,7 @@ const EventTrigger = ({
 
     // For like and comment events, check if target user has posts
     if ((selectedEventType === 'like' || selectedEventType === 'comment')) {
-      if (targetUserPosts.length === 0) {
+      if (currentTargetUserPosts.length === 0) {
         const targetUser = users.find(u => u._id === selectedTargetUser);
         setFeedback(`❌ ${targetUser?.username || 'User'} hasn't created any posts yet. Ask them to create a post first!`);
         return;
@@ -79,6 +111,13 @@ const EventTrigger = ({
 
       if (!selectedEntityId) {
         setFeedback('❌ Please select a post');
+        return;
+      }
+
+      // Verify the selected post actually belongs to the target user
+      const selectedPost = currentTargetUserPosts.find(p => p._id === selectedEntityId);
+      if (!selectedPost || selectedPost.userId !== selectedTargetUser) {
+        setFeedback('❌ Invalid post selection. Please select a valid post.');
         return;
       }
     }
@@ -104,13 +143,13 @@ const EventTrigger = ({
         case 'like':
           eventData.data = {
             entityType: 'post',
-            entityTitle: targetUserPosts.find(p => p._id === selectedEntityId)?.title || 'a post'
+            entityTitle: currentTargetUserPosts.find(p => p._id === selectedEntityId)?.title || 'a post'
           };
           break;
         case 'comment':
           eventData.data = {
             entityType: 'post',
-            entityTitle: targetUserPosts.find(p => p._id === selectedEntityId)?.title || 'a post',
+            entityTitle: currentTargetUserPosts.find(p => p._id === selectedEntityId)?.title || 'a post',
             commentText: commentText.trim()
           };
           break;
@@ -123,7 +162,8 @@ const EventTrigger = ({
 
       await onTriggerEvent(eventData);
 
-      setFeedback(`✅ ${selectedEventType.charAt(0).toUpperCase() + selectedEventType.slice(1)} event triggered successfully!`);
+      const targetUser = users.find(u => u._id === selectedTargetUser);
+      setFeedback(`✅ ${selectedEventType.charAt(0).toUpperCase() + selectedEventType.slice(1)} event triggered successfully for ${targetUser?.username}!`);
       
       // Reset form after successful submission
       if (selectedEventType === 'comment') {
@@ -149,6 +189,11 @@ const EventTrigger = ({
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const getSelectedTargetUserName = () => {
+    const targetUser = users.find(u => u._id === selectedTargetUser);
+    return targetUser?.username || 'Selected User';
   };
 
   return (
@@ -214,14 +259,16 @@ const EventTrigger = ({
         {/* Post Selection (for like/comment events) */}
         {(selectedEventType === 'like' || selectedEventType === 'comment') && selectedTargetUser && (
           <div className="form-group">
-            <label htmlFor="entityId">Select Post</label>
+            <label htmlFor="entityId">
+              Select Post from {getSelectedTargetUserName()}'s Posts
+            </label>
             {loadingPosts ? (
               <div className="loading-posts">
-                <span className="spinner">⏳</span> Loading posts...
+                <span className="spinner">⏳</span> Loading {getSelectedTargetUserName()}'s posts...
               </div>
             ) : (
               <>
-                {targetUserPosts.length > 0 ? (
+                {currentTargetUserPosts.length > 0 ? (
                   <select
                     id="entityId"
                     value={selectedEntityId}
@@ -229,8 +276,8 @@ const EventTrigger = ({
                     className="form-control"
                     required
                   >
-                    <option value="">Choose a post...</option>
-                    {targetUserPosts.map(post => (
+                    <option value="">Choose a post from {getSelectedTargetUserName()}...</option>
+                    {currentTargetUserPosts.map(post => (
                       <option key={post._id} value={post._id}>
                         📄 {formatPostTitle(post.title)} • {formatDate(post.createdAt)}
                       </option>
@@ -239,8 +286,8 @@ const EventTrigger = ({
                 ) : (
                   <div className="no-posts-message">
                     <span className="warning-icon">⚠️</span>
-                    <p>This user hasn't created any posts yet.</p>
-                    <small>Ask them to create a post first, then you can like or comment on it.</small>
+                    <p>{getSelectedTargetUserName()} hasn't created any posts yet.</p>
+                    <small>Ask {getSelectedTargetUserName()} to create a post first, then you can like or comment on it.</small>
                   </div>
                 )}
               </>

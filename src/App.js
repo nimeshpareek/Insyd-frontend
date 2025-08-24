@@ -132,11 +132,32 @@ function App() {
   };
 
   const loadTargetUserPosts = async (userId) => {
+    if (!userId) {
+      setTargetUserPosts([]);
+      return;
+    }
+    
     try {
+      console.log(`🔄 Loading posts for target user: ${userId}`);
       const response = await axios.get(`${API_BASE_URL}/api/posts?userId=${userId}`);
-      setTargetUserPosts(response.data);
+      
+      // Double-check that we only get posts from the requested user
+      const userPosts = response.data.filter(post => post.userId === userId);
+      
+      // Find user name for logging
+      const targetUser = users.find(u => u._id === userId);
+      const userName = targetUser?.username || 'Unknown User';
+      
+      setTargetUserPosts(userPosts);
+      console.log(`✅ Loaded ${userPosts.length} posts for ${userName} (${userId})`);
+      
+      // Log post titles for debugging
+      if (userPosts.length > 0) {
+        console.log('📝 Posts:', userPosts.map(p => ({ title: p.title.substring(0, 30), userId: p.userId })));
+      }
+      
     } catch (error) {
-      console.error('Error loading target user posts:', error);
+      console.error('❌ Error loading target user posts:', error);
       setTargetUserPosts([]);
     }
   };
