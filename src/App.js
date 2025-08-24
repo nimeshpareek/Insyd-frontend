@@ -5,6 +5,7 @@ import NotificationList from './components/NotificationList';
 import EventTrigger from './components/EventTrigger';
 import UserSelector from './components/UserSelector';
 import PostCreator from './components/PostCreator';
+import CreateUserModal from './components/CreateUserModal';
 import './App.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
@@ -20,6 +21,7 @@ function App() {
   const [error, setError] = useState(null);
   const [userPosts, setUserPosts] = useState([]);
   const [targetUserPosts, setTargetUserPosts] = useState([]);
+  const [showCreateUserModal, setShowCreateUserModal] = useState(false);
 
   // Initialize socket connection
   useEffect(() => {
@@ -64,6 +66,7 @@ function App() {
     if (currentUser) {
       loadNotifications();
       loadUnreadCount();
+      loadUserPosts(currentUser._id);
       
       // Identify user to socket
       if (socket) {
@@ -83,7 +86,7 @@ function App() {
       const response = await axios.get(`${API_BASE_URL}/api/users`);
       setUsers(response.data);
       
-      // Auto-select first user if available
+      // Auto-select first user if available and no current user
       if (response.data.length > 0 && !currentUser) {
         setCurrentUser(response.data[0]);
       }
@@ -115,6 +118,26 @@ function App() {
       setUnreadCount(response.data.count);
     } catch (error) {
       console.error('Error loading unread count:', error);
+    }
+  };
+
+  const loadUserPosts = async (userId) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/posts?userId=${userId}`);
+      setUserPosts(response.data);
+    } catch (error) {
+      console.error('Error loading posts:', error);
+      setUserPosts([]);
+    }
+  };
+
+  const loadTargetUserPosts = async (userId) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/posts?userId=${userId}`);
+      setTargetUserPosts(response.data);
+    } catch (error) {
+      console.error('Error loading target user posts:', error);
+      setTargetUserPosts([]);
     }
   };
 
@@ -171,35 +194,30 @@ function App() {
     }
   };
 
-  const loadUserPosts = async (userId) => {
-    try {
-      const response = await axios.get(`${API_BASE_URL}/api/posts?userId=${userId}`);
-      setUserPosts(response.data);
-    } catch (error) {
-      console.error('Error loading posts:', error);
-    }
-  };
-
-  const loadTargetUserPosts = async (userId) => {
-    try {
-      const response = await axios.get(`${API_BASE_URL}/api/posts?userId=${userId}`);
-      setTargetUserPosts(response.data);
-    } catch (error) {
-      setTargetUserPosts([]);
-    }
-  };
-
-  // Example: refresh posts after creation
   const handlePostCreated = () => {
     if (currentUser) {
       loadUserPosts(currentUser._id);
     }
   };
 
+  const handleCreateUser = async (userData) => {
+    try {
+      const newUser = await createUser(userData);
+      setCurrentUser(newUser);
+      setShowCreateUserModal(false);
+      return newUser;
+    } catch (error) {
+      throw error;
+    }
+  };
+
   if (loading) {
     return (
       <div className="app">
-        <div className="loading">Loading Insyd Notification System...</div>
+        <div className="loading">
+          <div className="spinner">⏳</div>
+          <p>Loading Insyd Notification System...</p>
+        </div>
       </div>
     );
   }
@@ -208,9 +226,9 @@ function App() {
     return (
       <div className="app">
         <div className="error">
-          <h2>Error</h2>
+          <h2>⚠️ Error</h2>
           <p>{error}</p>
-          <button onClick={() => window.location.reload()}>Retry</button>
+          <button onClick={() => window.location.reload()}>🔄 Retry</button>
         </div>
       </div>
     );
@@ -221,10 +239,18 @@ function App() {
       <header className="app-header">
         <div className="header-content">
           <h1>🏗️ Insyd Notification System</h1>
-          <div className="connection-status">
-            <span className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}>
-              {isConnected ? '🟢 Connected' : '🔴 Disconnected'}
-            </span>
+          <div className="header-actions">
+            <button 
+              onClick={() => setShowCreateUserModal(true)}
+              className="create-user-header-btn"
+            >
+              ➕ Create New User
+            </button>
+            <div className="connection-status">
+              <span className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}>
+                {isConnected ? '🟢 Connected' : '🔴 Disconnected'}
+              </span>
+            </div>
           </div>
         </div>
       </header>
@@ -236,24 +262,27 @@ function App() {
               users={users}
               currentUser={currentUser}
               onUserSelect={setCurrentUser}
-              onCreateUser={createUser}
             />
           </div>
+
+          {currentUser && (
+            <div className="post-creator-section">
+              <PostCreator 
+                currentUser={currentUser} 
+                onPostCreated={handlePostCreated} 
+              />
+            </div>
+          )}
 
           {currentUser && (
             <div className="event-section">
               <EventTrigger
                 currentUser={currentUser}
                 users={users}
+                targetUserPosts={targetUserPosts}
                 onTriggerEvent={triggerEvent}
+                onTargetUserChange={loadTargetUserPosts}
               />
-            </div>
-          )}
-
-          {currentUser && (
-            <div className="post-creator-section">
-              <h4>Create a Post</h4>
-              <PostCreator currentUser={currentUser} onPostCreated={handlePostCreated} />
             </div>
           )}
         </div>
@@ -263,7 +292,7 @@ function App() {
             <>
               <div className="notifications-header">
                 <h2>
-                  Notifications for {currentUser.username}
+                  🔔 Notifications for {currentUser.username}
                   {unreadCount > 0 && (
                     <span className="unread-badge">{unreadCount}</span>
                   )}
@@ -285,15 +314,31 @@ function App() {
             </>
           ) : (
             <div className="welcome-message">
-              <h2>Welcome to Insyd Notification System</h2>
-              <p>Select or create a user to get started with notifications.</p>
+              <h2>🎉 Welcome to Insyd Notification System</h2>
+              <p>Select an existing user or create a new one to get started with notifications.</p>
+              <div className="welcome-actions">
+                <button 
+                  onClick={() => setShowCreateUserModal(true)}
+                  className="welcome-create-btn"
+                >
+                  ➕ Create Your First User
+                </button>
+              </div>
             </div>
           )}
         </div>
       </main>
 
+      {/* Create User Modal */}
+      {showCreateUserModal && (
+        <CreateUserModal
+          onClose={() => setShowCreateUserModal(false)}
+          onCreateUser={handleCreateUser}
+        />
+      )}
+
       <footer className="app-footer">
-        <p>Insyd Notification System POC - Built with React & Node.js</p>
+        <p>Insyd Notification System POC - Built with React & Node.js | Connected Users: {users.length}</p>
       </footer>
     </div>
   );
